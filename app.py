@@ -1,19 +1,18 @@
 import streamlit as st
-import pandas as pd
+import io
+import base64
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-import io
 
 # --- CONFIGURATION ---
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 SERVICE_ACCOUNT_FILE = 'credentials.json'
 
 # --- AUTHENTICATION ---
-# (No decorator here)
 def get_drive_service():
     """Authenticates using local file OR Streamlit Secrets."""
-    # ... rest of the code remains exactly the same ...    creds = None
+    creds = None
     if "gcp_service_account" in st.secrets:
         service_account_info = st.secrets["gcp_service_account"]
         creds = service_account.Credentials.from_service_account_info(
@@ -27,41 +26,63 @@ def get_drive_service():
             return None
     return build('drive', 'v3', credentials=creds)
 
-# --- HELPER: GET CONTENT ---
-def get_file_content(file_id, mime_type):
-    """Downloads a snippet of the file text for preview."""
+# --- HELPER: GET CONTENT FOR PREVIEW ---
+def get_preview_content(file_id, mime_type):
+    """
+    Downloads file content specifically for previewing.
+    Returns: (data_bytes, type_category)
+    """
     service = get_drive_service()
-    try:
-        if 'google-apps' in mime_type:
-            # It's a Google Doc, we must Export it as plain text
-            request = service.files().export_media(fileId=file_id, mimeType='text/plain')
-        else:
-            # It's a regular file (txt, csv), we get the content directly
-            # Note: This is complex for PDFs/Images, so we skip them for simple text preview
-            return "Preview not available for binary files (PDF/Images) in this version."
-            
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        
-        return fh.getvalue().decode('utf-8')[:500] + "..." # Limit to first 500 chars
-    except Exception as e:
-        return f"Could not load preview: {str(e)}"
+    if not service: return None, "error"
 
-# --- HELPER: GET SHARED FOLDERS ---
+    try:
+        # CATEGORY 1: Google Docs (Export to Text)
+        if 'application/vnd.google-apps' in mime_type:
+            # We export to plain text for quick preview
+            request = service.files().export_media(fileId=file_id, mimeType='text/plain')
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            return fh.getvalue().decode('utf-8')[:2000], "text" # Limit to 2000 chars
+
+        # CATEGORY 2: Images or PDFs (Download binary)
+        elif 'image/' in mime_type or 'application/pdf' in mime_type:
+            request = service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            
+            if 'image/' in mime_type:
+                return fh.getvalue(), "image"
+            else:
+                return fh.getvalue(), "pdf"
+
+        else:
+            return "Preview not supported for this file type.", "text"
+
+    except Exception as e:
+        return f"Error loading preview: {str(e)}", "text"
+
+# --- HELPER: GET FOLDERS ---
 def get_shared_folders():
     service = get_drive_service()
     if not service: return {}
-    query = "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    results = service.files().list(q=query, pageSize=50, fields="files(id, name)").execute()
+    results = service.files().list(
+        q="mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        pageSize=50, 
+        fields="files(id, name)"
+    ).execute()
     return {f['name']: f['id'] for f in results.get('files', [])}
 
 # --- SEARCH FUNCTION ---
 def search_drive(query_text, specific_folder_id=None):
     service = get_drive_service()
-    results = []
+    if not service: return []
+    
     search_query = f"fullText contains '{query_text}' and trashed = false"
     if specific_folder_id:
         search_query += f" and '{specific_folder_id}' in parents"
@@ -69,55 +90,37 @@ def search_drive(query_text, specific_folder_id=None):
     try:
         response = service.files().list(
             q=search_query,
-            pageSize=20, # Keep it low for speed
-            fields="files(id, name, mimeType, parents, webContentLink, webViewLink, exportLinks)"
+            pageSize=15, # Lower limit to keep it fast
+            fields="files(id, name, mimeType, webContentLink, webViewLink, exportLinks)"
         ).execute()
-        
-        files = response.get('files', [])
-        
-        for file in files:
-            dl_link = file.get('webContentLink')
-            view_link = file.get('webViewLink')
-            if not dl_link: 
-                if 'exportLinks' in file and 'application/pdf' in file['exportLinks']:
-                    dl_link = file['exportLinks']['application/pdf']
-                else:
-                    dl_link = view_link
-
-            results.append({
-                "ID": file.get('id'),
-                "File Name": file.get('name'),
-                "Type": file.get('mimeType'),
-                "Action": dl_link,
-                "View": view_link
-            })
+        return response.get('files', [])
             
     except Exception as e:
         st.error(f"API Error: {e}")
-    return results
+        return []
 
 # --- UI LAYOUT ---
 st.set_page_config(page_title="Doc Search", layout="wide")
-st.title("📂 Intelligent File Search System")
+st.title("📂 Intelligent File Search")
 
 # SIDEBAR
 with st.sidebar:
     st.header("Settings")
     available_folders = get_shared_folders()
-    folder_options = ["All Shared Folders"] + list(available_folders.keys())
-    selected_option = st.selectbox("Search Scope", folder_options)
-    target_folder_id = None
-    if selected_option != "All Shared Folders":
-        target_folder_id = available_folders[selected_option]
+    if available_folders:
+        folder_options = ["All Shared Folders"] + list(available_folders.keys())
+        selected_option = st.selectbox("Search Scope", folder_options)
+        target_folder_id = available_folders.get(selected_option)
+    else:
+        st.warning("No shared folders found.")
+        target_folder_id = None
 
-# MAIN SEARCH
-st.markdown("### Search")
-with st.container():
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        search_term = st.text_input("Enter keyword", placeholder="e.g. Invoice...", label_visibility="collapsed")
-    with col2:
-        search_btn = st.button("Search", type="primary", use_container_width=True)
+# SEARCH BAR
+col1, col2 = st.columns([4, 1])
+with col1:
+    search_term = st.text_input("Search", placeholder="Enter keyword...", label_visibility="collapsed")
+with col2:
+    search_btn = st.button("Search", type="primary", use_container_width=True)
 
 st.divider()
 
@@ -126,28 +129,49 @@ if "search_results" not in st.session_state:
     st.session_state.search_results = None
 
 if search_btn and search_term:
-    with st.spinner(f"Scanning '{selected_option}'..."):
+    with st.spinner("Searching..."):
         st.session_state.search_results = search_drive(search_term, target_folder_id)
 
 if st.session_state.search_results:
-    data = st.session_state.search_results
-    st.success(f"Found {len(data)} documents.")
-    
-    for item in data:
-        with st.expander(f"📄 {item['File Name']}"):
+    for file in st.session_state.search_results:
+        f_id = file['id']
+        f_name = file['name']
+        f_mime = file['mimeType']
+        
+        # Determine Download Link
+        dl_link = file.get('webContentLink')
+        if not dl_link and 'exportLinks' in file and 'application/pdf' in file['exportLinks']:
+            dl_link = file['exportLinks']['application/pdf']
+        
+        with st.expander(f"📄 {f_name}"):
+            tab1, tab2 = st.tabs(["Details", "👀 Preview"])
             
-            # Create Tabs inside the expander
-            tab1, tab2 = st.tabs(["Details & Actions", "👀 Text Preview"])
-            
+            # TAB 1: DETAILS
             with tab1:
-                c1, c2, c3 = st.columns([1, 1, 1])
-                c1.write(f"**Type:** {item['Type'].split('/')[-1]}")
-                c2.markdown(f"[📥 **Download File**]({item['Action']})")
-                c3.markdown(f"[↗️ **Open in Drive**]({item['View']})")
-            
+                st.write(f"**Type:** {f_mime}")
+                if dl_link:
+                    st.markdown(f"[📥 **Direct Download Link**]({dl_link})")
+                else:
+                    st.info("Direct download not available. Use preview.")
+
+            # TAB 2: PREVIEW
             with tab2:
-                # Only load preview if user clicks this tab (Lazy Loading button)
-                if st.button(f"Load Preview for {item['File Name']}", key=item['ID']):
-                    with st.spinner("Fetching content..."):
-                        content = get_file_content(item['ID'], item['Type'])
-                        st.text_area("Content Snippet", content, height=200)
+                # Lazy Loading Button
+                if st.button(f"Load Preview", key=f"prev_{f_id}"):
+                    with st.spinner("Downloading file for preview..."):
+                        content, content_type = get_preview_content(f_id, f_mime)
+                        
+                        if content_type == "image":
+                            st.image(content, caption=f_name, use_container_width=True)
+                            
+                        elif content_type == "pdf":
+                            # Encode PDF to base64 to display in browser
+                            base64_pdf = base64.b64encode(content).decode('utf-8')
+                            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                            st.markdown(pdf_display, unsafe_allow_html=True)
+                            
+                        elif content_type == "text":
+                            st.text_area("Content Snippet", content, height=300)
+                            
+                        else:
+                            st.error(content) # Show error message
