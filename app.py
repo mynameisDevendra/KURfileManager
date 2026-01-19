@@ -1,6 +1,8 @@
 import streamlit as st
 import io
 import base64
+# --- NEW IMPORT ADDED HERE ---
+from streamlit_pdf_viewer import pdf_viewer 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -38,14 +40,13 @@ def get_preview_content(file_id, mime_type):
     try:
         # CATEGORY 1: Google Docs (Export to Text)
         if 'application/vnd.google-apps' in mime_type:
-            # We export to plain text for quick preview
             request = service.files().export_media(fileId=file_id, mimeType='text/plain')
             fh = io.BytesIO()
             downloader = MediaIoBaseDownload(fh, request)
             done = False
             while done is False:
                 status, done = downloader.next_chunk()
-            return fh.getvalue().decode('utf-8')[:2000], "text" # Limit to 2000 chars
+            return fh.getvalue().decode('utf-8')[:2000], "text" 
 
         # CATEGORY 2: Images or PDFs (Download binary)
         elif 'image/' in mime_type or 'application/pdf' in mime_type:
@@ -90,7 +91,7 @@ def search_drive(query_text, specific_folder_id=None):
     try:
         response = service.files().list(
             q=search_query,
-            pageSize=15, # Lower limit to keep it fast
+            pageSize=15, 
             fields="files(id, name, mimeType, webContentLink, webViewLink, exportLinks)"
         ).execute()
         return response.get('files', [])
@@ -154,9 +155,8 @@ if st.session_state.search_results:
                 else:
                     st.info("Direct download not available. Use preview.")
 
-# TAB 2: PREVIEW
+            # TAB 2: PREVIEW
             with tab2:
-                # Lazy Loading Button
                 if st.button(f"Load Preview", key=f"prev_{f_id}"):
                     with st.spinner("Downloading file for preview..."):
                         content, content_type = get_preview_content(f_id, f_mime)
@@ -165,8 +165,7 @@ if st.session_state.search_results:
                             st.image(content, caption=f_name, use_container_width=True)
                             
                         elif content_type == "pdf":
-                            # NEW: Use the professional viewer (No base64 needed)
-                            # 'content' is the raw bytes we downloaded
+                            # Use the professional viewer function
                             pdf_viewer(input=content, width=700, height=800)
                             
                         elif content_type == "text":
