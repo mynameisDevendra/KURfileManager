@@ -146,7 +146,7 @@ if st.session_state.search_results:
             with tab1:
                 st.write(f"**Type:** {f_mime}")
                 
-                if st.button("📥 Download Now", key=f"dl_btn_{f_id}"):
+                if st.button("📥 Prepare for Download", key=f"dl_btn_{f_id}"):
                     with st.spinner("Downloading..."):
                         content, dtype = get_file_content(f_id, f_mime)
                         
