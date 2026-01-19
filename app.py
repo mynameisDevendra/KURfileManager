@@ -106,7 +106,7 @@ st.title("📂 Intelligent File Search")
 
 # SIDEBAR
 with st.sidebar:
-    st.header("Settings")
+    st.header("Select Folder")
     available_folders = get_shared_folders()
     if available_folders:
         folder_options = ["All Shared Folders"] + list(available_folders.keys())
@@ -146,7 +146,7 @@ if st.session_state.search_results:
             with tab1:
                 st.write(f"**Type:** {f_mime}")
                 
-                if st.button("📥 Prepare Download", key=f"dl_btn_{f_id}"):
+                if st.button("📥 Download Now", key=f"dl_btn_{f_id}"):
                     with st.spinner("Downloading..."):
                         content, dtype = get_file_content(f_id, f_mime)
                         
