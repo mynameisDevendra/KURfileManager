@@ -102,7 +102,7 @@ def search_drive(query_text, specific_folder_id=None):
 
 # --- UI LAYOUT ---
 st.set_page_config(page_title="Doc Search", layout="wide")
-st.title("📂 Intelligent File Search")
+st.title("📂 KUR File Manager")
 
 # SIDEBAR
 with st.sidebar:
