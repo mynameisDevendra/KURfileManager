@@ -154,7 +154,7 @@ if st.session_state.search_results:
                 else:
                     st.info("Direct download not available. Use preview.")
 
-            # TAB 2: PREVIEW
+# TAB 2: PREVIEW
             with tab2:
                 # Lazy Loading Button
                 if st.button(f"Load Preview", key=f"prev_{f_id}"):
@@ -165,13 +165,12 @@ if st.session_state.search_results:
                             st.image(content, caption=f_name, use_container_width=True)
                             
                         elif content_type == "pdf":
-                            # Encode PDF to base64 to display in browser
-                            base64_pdf = base64.b64encode(content).decode('utf-8')
-                            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
-                            st.markdown(pdf_display, unsafe_allow_html=True)
+                            # NEW: Use the professional viewer (No base64 needed)
+                            # 'content' is the raw bytes we downloaded
+                            pdf_viewer(input=content, width=700, height=800)
                             
                         elif content_type == "text":
                             st.text_area("Content Snippet", content, height=300)
                             
                         else:
-                            st.error(content) # Show error message
+                            st.error(content)
