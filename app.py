@@ -10,10 +10,10 @@ SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 SERVICE_ACCOUNT_FILE = 'credentials.json'
 
 # --- AUTHENTICATION ---
-@st.cache_resource
+# (No decorator here)
 def get_drive_service():
     """Authenticates using local file OR Streamlit Secrets."""
-    creds = None
+    # ... rest of the code remains exactly the same ...    creds = None
     if "gcp_service_account" in st.secrets:
         service_account_info = st.secrets["gcp_service_account"]
         creds = service_account.Credentials.from_service_account_info(
